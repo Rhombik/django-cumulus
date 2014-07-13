@@ -39,6 +39,7 @@ def get_headers(name, content_type):
         headers["Content-Encoding"] = "gzip"
     if CUMULUS["HEADERS"]:
         for pattern, pattern_headers in HEADER_PATTERNS:
+            print("Matching "+str(pattern)+" on "+str(pattern_headers))
             if pattern.match(name):
                 headers.update(pattern_headers.copy())
     return headers
@@ -236,14 +237,16 @@ class SwiftclientStorage(Storage):
                                          obj_name=name,
                                          data=content.read(),
                                          content_type=content_type,
+                                         headers=headers,
                                          content_encoding=headers.get("Content-Encoding", None),
                                          ttl=CUMULUS["FILE_TTL"],
                                          etag=None)
             # set headers/object metadata
-            self.connection.set_object_metadata(container=self.container_name,
-                                                obj=name,
-                                                metadata=headers,
-                                                prefix='')
+#            print(str(headers)+"   ---------cumulus headers")
+#            self.connection.set_object_metadata(container=self.container_name,
+#                                                obj=name,
+#                                                metadata=headers,
+#                                                prefix='')
         else:
             # TODO gzipped content when using swift client
             self.connection.put_object(self.container_name, name,

@@ -1,3 +1,15 @@
+Rhombik Fork of django-cumulus
+==============
+
+This is the version of django-cumulus we use in production. It's probably not real useful to other people. We mostly just created it so we can more consistantly control versioning, while still getting the latest git features when we need them.
+
+Right now it includes two patches, both by cwood.
+
+ * [Use default ContentFileObject](https://github.com/django-cumulus/django-cumulus/pull/162) (instead of a weird hacky custom class that re-implimented most of it for no reason. I'm sure it made sense a long time ago)
+
+ * [Cache result of URI](https://github.com/django-cumulus/django-cumulus/pull/161), which should reduce the round trip latency by a whole bunch.
+
+
 django-cumulus
 ==============
 
