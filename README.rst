@@ -9,6 +9,7 @@ Right now it includes two patches, both by cwood.
 
  * [Cache result of URI](https://github.com/django-cumulus/django-cumulus/pull/161), which should reduce the round trip latency by a whole bunch.
 
+And a minor change by me, re-enabling setting headers. So was can properly set COR headers again.
 
 django-cumulus
 ==============
