@@ -39,7 +39,6 @@ def get_headers(name, content_type):
         headers["Content-Encoding"] = "gzip"
     if CUMULUS["HEADERS"]:
         for pattern, pattern_headers in HEADER_PATTERNS:
-            print("Matching "+str(pattern)+" on "+str(pattern_headers))
             if pattern.match(name):
                 headers.update(pattern_headers.copy())
     return headers
@@ -85,7 +84,7 @@ class SwiftclientStorage(Storage):
     """
     default_quick_listdir = True
     api_key = CUMULUS["API_KEY"]
-    auth_url = CUMULUS["AUTH_URL"]
+#    auth_url = CUMULUS["AUTH_URL"]
     region = CUMULUS["REGION"]
     connection_kwargs = {}
     container_name = CUMULUS["CONTAINER"]
@@ -118,7 +117,7 @@ class SwiftclientStorage(Storage):
                 pyrax.set_setting("auth_endpoint", CUMULUS["AUTH_URL"])
             if CUMULUS["AUTH_TENANT_ID"]:
                 pyrax.set_setting("tenant_id", CUMULUS["AUTH_TENANT_ID"])
-
+            pyrax.set_http_debug(True)
             pyrax.set_credentials(self.username, self.api_key)
 
     def __getstate__(self):
@@ -233,7 +232,7 @@ class SwiftclientStorage(Storage):
         if CUMULUS["USE_PYRAX"]:
             if headers.get("Content-Encoding") == "gzip":
                 content = get_gzipped_contents(content)
-            self.connection.store_object(container=self.container_name,
+            obj = self.connection.store_object(container=self.container_name,
                                          obj_name=name,
                                          data=content.read(),
                                          content_type=content_type,
@@ -241,12 +240,6 @@ class SwiftclientStorage(Storage):
                                          content_encoding=headers.get("Content-Encoding", None),
                                          ttl=CUMULUS["FILE_TTL"],
                                          etag=None)
-            # set headers/object metadata
-#            print(str(headers)+"   ---------cumulus headers")
-#            self.connection.set_object_metadata(container=self.container_name,
-#                                                obj=name,
-#                                                metadata=headers,
-#                                                prefix='')
         else:
             # TODO gzipped content when using swift client
             self.connection.put_object(self.container_name, name,

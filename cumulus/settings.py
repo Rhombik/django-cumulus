@@ -5,7 +5,7 @@ from django.conf import settings
 
 CUMULUS = {
     "API_KEY": None,
-    "AUTH_URL": "us_authurl",
+    "AUTH_URL": None,
     "AUTH_VERSION": "1.0",
     "AUTH_TENANT_NAME": None,
     "AUTH_TENANT_ID": None,
@@ -35,7 +35,7 @@ if hasattr(settings, "CUMULUS"):
     CUMULUS.update(settings.CUMULUS)
 
 # set the full rackspace auth_url
-if CUMULUS["AUTH_URL"] == "us_authurl":
-    CUMULUS["AUTH_URL"] = "https://auth.api.rackspacecloud.com/v1.0"
-elif CUMULUS["AUTH_URL"] == "uk_authurl":
-    CUMULUS["AUTH_URL"] = "https://lon.auth.api.rackspacecloud.com/v1.0"
+#if CUMULUS["AUTH_URL"] == "us_authurl":
+#    CUMULUS["AUTH_URL"] = "https://auth.api.rackspacecloud.com/v1.0"
+#elif CUMULUS["AUTH_URL"] == "uk_authurl":
+#    CUMULUS["AUTH_URL"] = "https://lon.auth.api.rackspacecloud.com/v1.0"
