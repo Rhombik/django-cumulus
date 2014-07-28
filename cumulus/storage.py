@@ -117,7 +117,7 @@ class SwiftclientStorage(Storage):
                 pyrax.set_setting("auth_endpoint", CUMULUS["AUTH_URL"])
             if CUMULUS["AUTH_TENANT_ID"]:
                 pyrax.set_setting("tenant_id", CUMULUS["AUTH_TENANT_ID"])
-            pyrax.set_http_debug(True)
+#            pyrax.set_http_debug(True)
             pyrax.set_credentials(self.username, self.api_key)
 
     def __getstate__(self):
