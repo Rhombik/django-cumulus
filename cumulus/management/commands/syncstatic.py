@@ -246,7 +246,7 @@ class Command(NoArgsCommand):
             self.conn.store_object(
                 container=self.container_name,
                 obj_name=cloud_filename,
-                data=content,
+                data=content.read(),
                 etag=None,
                 content_type=content_type,
                 headers=headers)
