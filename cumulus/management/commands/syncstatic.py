@@ -5,7 +5,6 @@ import optparse
 import os
 import pyrax
 import re
-import swiftclient
 
 from django.conf import settings
 from django.core.management import call_command
@@ -282,12 +281,13 @@ class Command(NoArgsCommand):
         Completely wipes out the contents of the container.
         """
         if self.test_run:
-            print("Wipe would delete {0} objects.".format(len(self.container[1])))
+            print("Wipe would delete {0} objects.".format(len(self.container.get_objects)))
         else:
             if not self.quiet or self.verbosity > 1:
-                print("Deleting {0} objects...".format(len(self.container[1])))
-            for cloud_obj in self.container[1]:
-                self.conn.delete_object(self.container_name, cloud_obj["name"])
+                print("Deleting {0} objects...".format(len(self.container.get_objects())))
+            for cloud_obj in self.container.get_objects():
+                cloud_obj.delete()
+                cloud_obj.purge()
 
     def print_tally(self):
         """
