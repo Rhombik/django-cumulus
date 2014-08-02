@@ -164,7 +164,7 @@ class Command(NoArgsCommand):
 
         remote_objects = {
             obj.name: datetime.datetime.strptime(obj.last_modified,
-                                "%Y-%m-%dT%H:%M:%S.%f") for obj in self.container.get_objects()
+                                "%Y-%m-%dT%H:%M:%S") for obj in self.container.get_objects()
         }
 
         # sync
