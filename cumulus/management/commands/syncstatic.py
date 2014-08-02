@@ -287,7 +287,6 @@ class Command(NoArgsCommand):
                 print("Deleting {0} objects...".format(len(self.container.get_objects())))
             for cloud_obj in self.container.get_objects():
                 cloud_obj.delete()
-                cloud_obj.purge()
 
     def print_tally(self):
         """
