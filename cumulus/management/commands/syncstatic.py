@@ -40,6 +40,32 @@ class Command(NoArgsCommand):
                              dest="container", help="Override STATIC_CONTAINER."),
     )
 
+    api_key = CUMULUS["API_KEY"]
+    region = CUMULUS["REGION"]
+    use_snet = CUMULUS["SERVICENET"]
+    username = CUMULUS["USERNAME"]
+
+
+    def __init__(self, username=None, api_key=None, container=None,
+                 connection_kwargs=None, container_uri=None):
+        """
+        Initializes the settings for the connection and container.
+        """
+        if username is not None:
+            self.username = username
+        if api_key is not None:
+            self.api_key = api_key
+        # connect
+        if CUMULUS["USE_PYRAX"]:
+            if CUMULUS["PYRAX_IDENTITY_TYPE"]:
+                pyrax.set_setting("identity_type", CUMULUS["PYRAX_IDENTITY_TYPE"])
+            if CUMULUS["AUTH_URL"]:
+                pyrax.set_setting("auth_endpoint", CUMULUS["AUTH_URL"])
+            if CUMULUS["AUTH_TENANT_ID"]:
+                pyrax.set_setting("tenant_id", CUMULUS["AUTH_TENANT_ID"])
+            pyrax.set_credentials(self.username, self.api_key)
+        super(Command, self).__init__()
+
     def set_options(self, options):
         """
         Sets instance variables based on an options dict
@@ -88,35 +114,27 @@ class Command(NoArgsCommand):
         The container will be created and/or made public using the
         pyrax api if not already so.
         """
-        self.conn = swiftclient.Connection(authurl=CUMULUS["AUTH_URL"],
+        if CUMULUS["USE_PYRAX"]:
+            public = not self.use_snet  # invert
+            self.conn = pyrax.connect_to_cloudfiles(region=self.region,
+                                                          public=public)
+        else:
+
+            self.conn = swiftclient.Connection(authurl=CUMULUS["AUTH_URL"],
                                            user=CUMULUS["USERNAME"],
                                            key=CUMULUS["API_KEY"],
                                            snet=CUMULUS["SERVICENET"],
                                            auth_version=CUMULUS["AUTH_VERSION"],
                                            tenant_name=CUMULUS["AUTH_TENANT_NAME"])
-        try:
-            self.conn.head_container(self.container_name)
-        except swiftclient.client.ClientException as exception:
-            if exception.msg == "Container HEAD failed":
-                call_command("container_create", self.container_name)
-            else:
-                raise
+        #try:
+        #    self.conn.head_container(self.container_name)
+        #except swiftclient.client.ClientException as exception:
+        #    if exception.msg == "Container HEAD failed":
+        #        call_command("container_create", self.container_name)
+        #    else:
+        #        raise
 
-        if CUMULUS["USE_PYRAX"]:
-            if CUMULUS["PYRAX_IDENTITY_TYPE"]:
-                pyrax.set_setting("identity_type", CUMULUS["PYRAX_IDENTITY_TYPE"])
-            public = not CUMULUS["SERVICENET"]
-            pyrax.set_credentials(CUMULUS["USERNAME"], CUMULUS["API_KEY"])
-            connection = pyrax.connect_to_cloudfiles(region=CUMULUS["REGION"],
-                                                     public=public)
-            container = connection.get_container(self.container_name)
-            if not container.cdn_enabled:
-                container.make_public(ttl=CUMULUS["TTL"])
-        else:
-            headers = {"X-Container-Read": ".r:*"}
-            self.conn.post_container(self.container_name, headers=headers)
-
-        self.container = self.conn.get_container(self.container_name, full_listing=True)
+        self.container = self.conn.get_container(self.container_name)
 
     def handle_noargs(self, *args, **options):
         # setup
@@ -146,8 +164,8 @@ class Command(NoArgsCommand):
         cloud_objs = self.match_cloud(self.includes, self.excludes)
 
         remote_objects = {
-            obj['name']: datetime.datetime.strptime(obj['last_modified'],
-                                "%Y-%m-%dT%H:%M:%S.%f") for obj in self.container[1]
+            obj.name: datetime.datetime.strptime(obj.last_modified,
+                                "%Y-%m-%dT%H:%M:%S.%f") for obj in self.container.get_objects()
         }
 
         # sync
@@ -161,7 +179,7 @@ class Command(NoArgsCommand):
         """
         Returns the cloud objects that match the include and exclude patterns.
         """
-        cloud_objs = [cloud_obj["name"] for cloud_obj in self.container[1]]
+        cloud_objs = [cloud_obj.name for cloud_obj in self.container.get_objects()]
         includes_pattern = r"|".join([fnmatch.translate(x) for x in includes])
         excludes_pattern = r"|".join([fnmatch.translate(x) for x in excludes]) or r"$."
         excludes = [o for o in cloud_objs if re.match(excludes_pattern, o)]
@@ -226,15 +244,13 @@ class Command(NoArgsCommand):
             else:
                 size = os.stat(abspath).st_size
 
-            self.conn.put_object(
+            self.conn.store_object(
                 container=self.container_name,
-                obj=cloud_filename,
-                contents=content,
-                content_length=size,
+                obj_name=cloud_filename,
+                data=content,
                 etag=None,
                 content_type=content_type,
                 headers=headers)
-
             # TODO syncheaders
             #from cumulus.storage import sync_headers
             #sync_headers(cloud_obj)
