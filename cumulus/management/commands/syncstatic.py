@@ -273,7 +273,7 @@ class Command(NoArgsCommand):
         """
         Deletes an object from the container.
         """
-       self.conn.delete_object(self.container_name, cloud_obj) 
+        self.conn.delete_object(self.container_name, cloud_obj) 
 
     def wipe_container(self):
         """
