@@ -13,6 +13,7 @@ from django.core.files.base import File, ContentFile
 from django.core.files.storage import Storage
 from django.core.cache import cache
 
+from cumulus.authentication import Auth
 from cumulus.settings import CUMULUS
 
 
@@ -78,22 +79,25 @@ def get_gzipped_contents(input_file):
     return ContentFile(zbuf.getvalue())
 
 
-class SwiftclientStorage(Storage):
+class SwiftclientStorage(Auth, Storage):
     """
     Custom storage for Swiftclient.
     """
     default_quick_listdir = True
+<<<<<<< HEAD
     api_key = CUMULUS["API_KEY"]
 #    auth_url = CUMULUS["AUTH_URL"]
     region = CUMULUS["REGION"]
     connection_kwargs = {}
+=======
+>>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600
     container_name = CUMULUS["CONTAINER"]
     container_uri = CUMULUS["CONTAINER_URI"]
     container_ssl_uri = CUMULUS["CONTAINER_SSL_URI"]
-    use_snet = CUMULUS["SERVICENET"]
-    username = CUMULUS["USERNAME"]
     ttl = CUMULUS["TTL"]
+    file_ttl = CUMULUS["FILE_TTL"]
     use_ssl = CUMULUS["USE_SSL"]
+<<<<<<< HEAD
     use_pyrax = CUMULUS["USE_PYRAX"]
 
     def __init__(self, username=None, api_key=None, container=None,
@@ -206,6 +210,8 @@ class SwiftclientStorage(Storage):
             return self.container.get_object(name)
         except pyrax.exceptions.NoSuchObject, swiftclient.exceptions.ClientException:
             return None
+=======
+>>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600
 
     def _open(self, name, mode="rb"):
         """
@@ -229,7 +235,7 @@ class SwiftclientStorage(Storage):
         content_type = get_content_type(name, content.file)
         headers = get_headers(name, content_type)
 
-        if CUMULUS["USE_PYRAX"]:
+        if self.use_pyrax:
             if headers.get("Content-Encoding") == "gzip":
                 content = get_gzipped_contents(content)
             obj = self.connection.store_object(container=self.container_name,
@@ -238,7 +244,7 @@ class SwiftclientStorage(Storage):
                                          content_type=content_type,
                                          headers=headers,
                                          content_encoding=headers.get("Content-Encoding", None),
-                                         ttl=CUMULUS["FILE_TTL"],
+                                         ttl=self.file_ttl,
                                          etag=None)
         else:
             # TODO gzipped content when using swift client
@@ -359,9 +365,7 @@ class ThreadSafeSwiftclientStorage(SwiftclientStorage):
 
     def _get_connection(self):
         if not hasattr(self.local_cache, "connection"):
-            public = not self.use_snet  # invert
-            connection = pyrax.connect_to_cloudfiles(region=self.region,
-                                                     public=public)
+            connection = self._get_connection()
             self.local_cache.connection = connection
 
         return self.local_cache.connection

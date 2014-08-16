@@ -1,4 +1,4 @@
-from pyrax.cf_wrapper.client import CFClient
+from pyrax.object_storage import DEFAULT_CDN_TTL
 
 from django.conf import settings
 
