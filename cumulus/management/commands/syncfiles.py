@@ -6,7 +6,7 @@ import re
 
 from django.conf import settings
 from django.core.management.base import CommandError, NoArgsCommand
-
+import pyrax
 
 from cumulus.authentication import Auth
 from cumulus.settings import CUMULUS
@@ -123,7 +123,6 @@ class Command(NoArgsCommand):
         self.skip_count = 0
         self.delete_count = 0
 
-<<<<<<< HEAD:cumulus/management/commands/syncstatic.py
     def connect_container(self):
         """
         Connects to a container using the swiftclient api.
@@ -153,8 +152,6 @@ class Command(NoArgsCommand):
 
         self.container = self.conn.get_container(self.container_name)
 
-=======
->>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600:cumulus/management/commands/syncfiles.py
     def handle_noargs(self, *args, **options):
         # setup
         self.set_options(options)
@@ -187,14 +184,9 @@ class Command(NoArgsCommand):
         cloud_objs = self.match_cloud(self.includes, self.excludes)
 
         remote_objects = {
-<<<<<<< HEAD:cumulus/management/commands/syncstatic.py
-            obj.name: datetime.datetime.strptime(obj.last_modified,
-                                "%Y-%m-%dT%H:%M:%S") for obj in self.container.get_objects()
-=======
             obj.name: datetime.datetime.strptime(
                 obj.last_modified,
                 "%Y-%m-%dT%H:%M:%S.%f") for obj in self.container.get_objects()
->>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600:cumulus/management/commands/syncfiles.py
         }
 
         # sync
@@ -272,19 +264,6 @@ class Command(NoArgsCommand):
                 size = content.size
             else:
                 size = os.stat(abspath).st_size
-<<<<<<< HEAD:cumulus/management/commands/syncstatic.py
-
-            self.conn.store_object(
-                container=self.container_name,
-                obj_name=cloud_filename,
-                data=content.read(),
-                etag=None,
-                content_type=content_type,
-                headers=headers)
-            # TODO syncheaders
-            #from cumulus.storage import sync_headers
-            #sync_headers(cloud_obj)
-=======
             self.container.create(
                 obj_name=cloud_filename,
                 data=content,
@@ -296,7 +275,6 @@ class Command(NoArgsCommand):
                 etag=None,
             )
 
->>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600:cumulus/management/commands/syncfiles.py
         self.upload_count += 1
         if not self.quiet or self.verbosity > 1:
             print("Uploaded: {0}".format(cloud_filename))
@@ -317,34 +295,21 @@ class Command(NoArgsCommand):
         """
         Deletes an object from the container.
         """
-<<<<<<< HEAD:cumulus/management/commands/syncstatic.py
-        self.conn.delete_object(self.container_name, cloud_obj) 
-=======
         self._connection.delete_object(
             container=self.container_name,
             obj=cloud_obj,
         )
->>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600:cumulus/management/commands/syncfiles.py
 
     def wipe_container(self):
         """
         Completely wipes out the contents of the container.
         """
         if self.test_run:
-<<<<<<< HEAD:cumulus/management/commands/syncstatic.py
-            print("Wipe would delete {0} objects.".format(len(self.container.get_objects)))
-        else:
-            if not self.quiet or self.verbosity > 1:
-                print("Deleting {0} objects...".format(len(self.container.get_objects())))
-            for cloud_obj in self.container.get_objects():
-                cloud_obj.delete()
-=======
             print("Wipe would delete {0} objects.".format(len(self.container.object_count)))
         else:
             if not self.quiet or self.verbosity > 1:
                 print("Deleting {0} objects...".format(len(self.container.object_count)))
             self._connection.delete_all_objects()
->>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600:cumulus/management/commands/syncfiles.py
 
     def print_tally(self):
         """

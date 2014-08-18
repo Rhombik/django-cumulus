@@ -16,7 +16,8 @@ CUMULUS = {
     "CONTAINER_SSL_URI": None,
     "SERVICENET": False,
     "TIMEOUT": 5,
-    "TTL": CFClient.default_cdn_ttl,  # 86400s (24h), pyrax default
+#    "TTL": CFClient.default_cdn_ttl,  # 86400s (24h), pyrax default
+    "TTL": 86400,
     "USE_SSL": False,
     "USERNAME": None,
     "STATIC_CONTAINER": None,

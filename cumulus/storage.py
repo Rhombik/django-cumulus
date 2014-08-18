@@ -84,20 +84,16 @@ class SwiftclientStorage(Auth, Storage):
     Custom storage for Swiftclient.
     """
     default_quick_listdir = True
-<<<<<<< HEAD
     api_key = CUMULUS["API_KEY"]
 #    auth_url = CUMULUS["AUTH_URL"]
     region = CUMULUS["REGION"]
     connection_kwargs = {}
-=======
->>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600
     container_name = CUMULUS["CONTAINER"]
     container_uri = CUMULUS["CONTAINER_URI"]
     container_ssl_uri = CUMULUS["CONTAINER_SSL_URI"]
     ttl = CUMULUS["TTL"]
     file_ttl = CUMULUS["FILE_TTL"]
     use_ssl = CUMULUS["USE_SSL"]
-<<<<<<< HEAD
     use_pyrax = CUMULUS["USE_PYRAX"]
 
     def __init__(self, username=None, api_key=None, container=None,
@@ -210,8 +206,6 @@ class SwiftclientStorage(Auth, Storage):
             return self.container.get_object(name)
         except pyrax.exceptions.NoSuchObject, swiftclient.exceptions.ClientException:
             return None
-=======
->>>>>>> 16c3b16e3ce3fa5950d7a4132c55bdb60f155600
 
     def _open(self, name, mode="rb"):
         """
@@ -365,12 +359,13 @@ class ThreadSafeSwiftclientStorage(SwiftclientStorage):
 
     def _get_connection(self):
         if not hasattr(self.local_cache, "connection"):
-            connection = self._get_connection()
+            connection = super(ThreadSafeSwiftclientStorage, self)._get_connection()
             self.local_cache.connection = connection
 
         return self.local_cache.connection
 
     connection = property(_get_connection, SwiftclientStorage._set_connection)
+
 
     def _get_container(self):
         if not hasattr(self.local_cache, "container"):
