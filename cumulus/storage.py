@@ -1,68 +1,38 @@
 import mimetypes
-import pyrax
+import os
 import re
-import swiftclient
+import hashlib
 from gzip import GzipFile
+from StringIO import StringIO
 
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from StringIO import StringIO
+import cloudfiles
+from cloudfiles.errors import NoSuchObject, ResponseError
 
 from django.core.files.base import File, ContentFile
 from django.core.files.storage import Storage
-from django.core.cache import cache
 
-from cumulus.authentication import Auth
-from cumulus.settings import CUMULUS
+from .settings import CUMULUS
 
 
-HEADER_PATTERNS = tuple((re.compile(p), h) for p, h in CUMULUS.get("HEADERS", {}))
-
-
-def get_content_type(name, content):
-    """
-    Checks if the content_type is already set.
-    Otherwise uses the mimetypes library to guess.
-    """
-    if hasattr(content, "content_type"):
-        content_type = content.content_type
-    else:
-        mime_type, encoding = mimetypes.guess_type(name)
-        content_type = mime_type
-    return content_type
-
-
-def get_headers(name, content_type):
-    headers = {"Content-Type": content_type}
-    # gzip the file if its of the right content type
-    if content_type in CUMULUS.get("GZIP_CONTENT_TYPES", []):
-        headers["Content-Encoding"] = "gzip"
-    if CUMULUS["HEADERS"]:
-        for pattern, pattern_headers in HEADER_PATTERNS:
-            if pattern.match(name):
-                headers.update(pattern_headers.copy())
-    return headers
+HEADER_PATTERNS = tuple((re.compile(p), h) for p, h in CUMULUS.get('HEADERS', {}))
 
 
 def sync_headers(cloud_obj, headers={}, header_patterns=HEADER_PATTERNS):
     """
-    Overwrites the given cloud_obj's headers with the ones given as ``headers`
-    and adds additional headers as defined in the HEADERS setting depending on
+    Overwrite the given cloud_obj's headers with the ones given as ``headers`
+    and add additional headers as defined in the HEADERS setting depending on 
     the cloud_obj's file name.
     """
     # don't set headers on directories
-    content_type = getattr(cloud_obj, "content_type", None)
-    if content_type == "application/directory":
+    content_type = getattr(cloud_obj, 'content_type', None)
+    if content_type == 'application/directory':
         return
     matched_headers = {}
     for pattern, pattern_headers in header_patterns:
         if pattern.match(cloud_obj.name):
             matched_headers.update(pattern_headers.copy())
-    # preserve headers already set
-    matched_headers.update(cloud_obj.headers)
-    # explicitly set headers overwrite matches and already set headers
-    matched_headers.update(headers)
+    matched_headers.update(cloud_obj.headers)  # preserve headers already set
+    matched_headers.update(headers)  # explicitly set headers overwrite matches and already set headers
     if matched_headers != cloud_obj.headers:
         cloud_obj.headers = matched_headers
         cloud_obj.sync_metadata()
@@ -70,36 +40,34 @@ def sync_headers(cloud_obj, headers={}, header_patterns=HEADER_PATTERNS):
 
 def get_gzipped_contents(input_file):
     """
-    Returns a gzipped version of a previously opened file's buffer.
+    Return a gzipped version of a previously opened file's buffer.
     """
     zbuf = StringIO()
-    zfile = GzipFile(mode="wb", compresslevel=6, fileobj=zbuf)
+    zfile = GzipFile(mode='wb', compresslevel=6, fileobj=zbuf)
     zfile.write(input_file.read())
     zfile.close()
     return ContentFile(zbuf.getvalue())
 
 
-class SwiftclientStorage(Auth, Storage):
+class CloudFilesStorage(Storage):
     """
-    Custom storage for Swiftclient.
+    Custom storage for Rackspace Cloud Files.
     """
     default_quick_listdir = True
-    api_key = CUMULUS["API_KEY"]
-#    auth_url = CUMULUS["AUTH_URL"]
-    region = CUMULUS["REGION"]
+    api_key = CUMULUS['API_KEY']
+    auth_url = CUMULUS['AUTH_URL']
     connection_kwargs = {}
-    container_name = CUMULUS["CONTAINER"]
-    container_uri = CUMULUS["CONTAINER_URI"]
-    container_ssl_uri = CUMULUS["CONTAINER_SSL_URI"]
-    ttl = CUMULUS["TTL"]
-    file_ttl = CUMULUS["FILE_TTL"]
-    use_ssl = CUMULUS["USE_SSL"]
-    use_pyrax = CUMULUS["USE_PYRAX"]
+    container_name = CUMULUS['CONTAINER']
+    timeout = CUMULUS['TIMEOUT']
+    use_servicenet = CUMULUS['SERVICENET']
+    username = CUMULUS['USERNAME']
+    ttl = CUMULUS['TTL']
+    use_ssl = CUMULUS['USE_SSL']
 
-    def __init__(self, username=None, api_key=None, container=None,
+    def __init__(self, username=None, api_key=None, container=None, timeout=None,
                  connection_kwargs=None, container_uri=None):
         """
-        Initializes the settings for the connection and container.
+        Initialize the settings for the connection and container.
         """
         if username is not None:
             self.username = username
@@ -107,46 +75,36 @@ class SwiftclientStorage(Auth, Storage):
             self.api_key = api_key
         if container is not None:
             self.container_name = container
+        if timeout is not None:
+            self.timeout = timeout
         if connection_kwargs is not None:
             self.connection_kwargs = connection_kwargs
-        # connect
-        if CUMULUS["USE_PYRAX"]:
-            if CUMULUS["PYRAX_IDENTITY_TYPE"]:
-                pyrax.set_setting("identity_type", CUMULUS["PYRAX_IDENTITY_TYPE"])
-            if CUMULUS["AUTH_URL"]:
-                pyrax.set_setting("auth_endpoint", CUMULUS["AUTH_URL"])
-            if CUMULUS["AUTH_TENANT_ID"]:
-                pyrax.set_setting("tenant_id", CUMULUS["AUTH_TENANT_ID"])
-#            pyrax.set_http_debug(True)
-            pyrax.set_credentials(self.username, self.api_key)
+
+        if container_uri is not None:
+            self._container_public_uri = container_uri
+        elif 'CONTAINER_URI' in CUMULUS:
+            self._container_public_uri = CUMULUS['CONTAINER_URI']
 
     def __getstate__(self):
         """
         Return a picklable representation of the storage.
         """
-        return {
-            "username": self.username,
-            "api_key": self.api_key,
-            "container_name": self.container_name,
-            "use_snet": self.use_snet,
-            "connection_kwargs": self.connection_kwargs
-        }
+        return dict(username=self.username,
+                    api_key=self.api_key,
+                    container_name=self.container_name,
+                    timeout=self.timeout,
+                    use_servicenet=self.use_servicenet,
+                    connection_kwargs=self.connection_kwargs)
 
     def _get_connection(self):
-        if not hasattr(self, "_connection"):
-            if CUMULUS["USE_PYRAX"]:
-                public = not self.use_snet  # invert
-                self._connection = pyrax.connect_to_cloudfiles(region=self.region,
-                                                               public=public)
-            else:
-                self._connection = swiftclient.Connection(
-                    authurl=CUMULUS["AUTH_URL"],
-                    user=CUMULUS["USERNAME"],
-                    key=CUMULUS["API_KEY"],
-                    snet=CUMULUS["SERVICENET"],
-                    auth_version=CUMULUS["AUTH_VERSION"],
-                    tenant_name=CUMULUS["AUTH_TENANT_NAME"],
-                )
+        if not hasattr(self, '_connection'):
+            self._connection = cloudfiles.get_connection(
+                                  username=self.username,
+                                  api_key=self.api_key,
+                                  authurl = self.auth_url,
+                                  timeout=self.timeout,
+                                  servicenet=self.use_servicenet,
+                                  **self.connection_kwargs)
         return self._connection
 
     def _set_connection(self, value):
@@ -155,169 +113,154 @@ class SwiftclientStorage(Auth, Storage):
     connection = property(_get_connection, _set_connection)
 
     def _get_container(self):
-        """
-        Gets or creates the container.
-        """
-        if not hasattr(self, "_container"):
-            if CUMULUS["USE_PYRAX"]:
-                self._container = self.connection.create_container(self.container_name)
-            else:
-                self._container = None
+        if not hasattr(self, '_container'):
+            self.container = self.connection.get_container(
+                                                        self.container_name)
         return self._container
 
     def _set_container(self, container):
         """
-        Sets the container (and, if needed, the configured TTL on it), making
+        Set the container (and, if needed, the configured TTL on it), making
         the container publicly available.
         """
-        if CUMULUS["USE_PYRAX"]:
-            if container.cdn_ttl != self.ttl or not container.cdn_enabled:
-                container.make_public(ttl=self.ttl)
-            if hasattr(self, "_container_public_uri"):
-                delattr(self, "_container_public_uri")
+        if container.cdn_ttl != self.ttl or not container.is_public():
+            container.make_public(ttl=self.ttl)
+        if hasattr(self, '_container_public_uri'):
+            delattr(self, '_container_public_uri')
         self._container = container
 
     container = property(_get_container, _set_container)
 
     def _get_container_url(self):
-        public_container_uri = cache.get('uri-' + self.container_name)
-        if not public_container_uri:
-            if self.use_ssl and self.container_ssl_uri:
-                self._container_public_uri = self.container_ssl_uri
-            elif self.use_ssl:
-                self._container_public_uri = self.container.cdn_ssl_uri
-            elif self.container_uri:
-                self._container_public_uri = self.container_uri
+        if not hasattr(self, '_container_public_uri'):
+            if self.use_ssl:
+                self._container_public_uri = self.container.public_ssl_uri()
             else:
-                self._container_public_uri = self.container.cdn_uri
-            if CUMULUS["CNAMES"] and self._container_public_uri in CUMULUS["CNAMES"]:
-                self._container_public_uri = CUMULUS["CNAMES"][self._container_public_uri]
-            public_container_uri = self._container_public_uri
-            cache.set('uri-' + self.container_name, public_container_uri)
-        return public_container_uri
+                self._container_public_uri = self.container.public_uri()
+        if CUMULUS['CNAMES'] and self._container_public_uri in CUMULUS['CNAMES']:
+            self._container_public_uri = CUMULUS['CNAMES'][self._container_public_uri]
+        return self._container_public_uri
 
     container_url = property(_get_container_url)
 
-    def _get_object(self, name):
+    def _get_cloud_obj(self, name):
         """
-        Helper function to retrieve the requested Object.
+        Helper function to get retrieve the requested Cloud Files Object.
         """
-        try:
-            return self.container.get_object(name)
-        except pyrax.exceptions.NoSuchObject, swiftclient.exceptions.ClientException:
-            return None
+        return self.container.get_object(name)
 
-    def _open(self, name, mode="rb"):
+    def _open(self, name, mode='rb'):
         """
-        Returns the ContentFile
-
-        We actully dont need the swiftfilestorage object at all. The new
-        client will return back the bytes we need and django's ContentFile
-        will implement what we need and accept the bytes that the client
-        returns.
-
-        This also benefits from returning a real file object so if other
-        libraries need it we can use it.
+        Return the CloudFilesStorageFile.
         """
-        return ContentFile(self._get_object(name).get())
+        return CloudFilesStorageFile(storage=self, name=name)
 
     def _save(self, name, content):
         """
-        Uses the Swiftclient service to write ``content`` to a remote
-        file (called ``name``).
+        Use the Cloud Files service to write ``content`` to a remote file
+        (called ``name``).
         """
-        content_type = get_content_type(name, content.file)
-        headers = get_headers(name, content_type)
+        (path, last) = os.path.split(name)
+ 
+        # Avoid infinite loop if path is '/'
+        if path and path != '/':
+            try:
+                self.container.get_object(path)
+            except NoSuchObject:
+                self._save(path, CloudStorageDirectory(path))
 
-        if self.use_pyrax:
-            if headers.get("Content-Encoding") == "gzip":
+        content.open()
+        cloud_obj = self.container.create_object(name)
+        
+        # If the objects has a hash, it already exists. The hash is md5 of
+        # the content. If the hash has not changed, do not send the file over
+        # again.
+        upload = True
+        if cloud_obj.etag:
+            if cloud_obj.etag == cloud_obj.compute_md5sum(content.file):
+                upload = False
+
+        if upload:
+            # If the content type is available, pass it in directly rather than
+            # getting the cloud object to try to guess.
+            if hasattr(content.file, 'content_type'):
+                cloud_obj.content_type = content.file.content_type
+            elif hasattr(content, 'content_type'):
+                cloud_obj.content_type = content.content_type
+            else:
+                mime_type, encoding = mimetypes.guess_type(name)
+                cloud_obj.content_type = mime_type
+            # gzip the file if its of the right content type
+            if cloud_obj.content_type in CUMULUS.get('GZIP_CONTENT_TYPES', []):
                 content = get_gzipped_contents(content)
-            obj = self.connection.store_object(container=self.container_name,
-                                         obj_name=name,
-                                         data=content.read(),
-                                         content_type=content_type,
-                                         headers=headers,
-                                         content_encoding=headers.get("Content-Encoding", None),
-                                         ttl=self.file_ttl,
-                                         etag=None)
-        else:
-            # TODO gzipped content when using swift client
-            self.connection.put_object(self.container_name, name,
-                                       content, headers=headers)
+                cloud_obj.headers['Content-Encoding'] = 'gzip'
+            # set file size
+            if hasattr(content.file, 'size'):
+                cloud_obj.size = content.file.size
+            else:
+                cloud_obj.size = content.size
+            cloud_obj.send(content)
 
+        content.close()
+        sync_headers(cloud_obj)
         return name
 
     def delete(self, name):
         """
         Deletes the specified file from the storage system.
-
-        Deleting a model doesn't delete associated files: bit.ly/12s6Oox
         """
         try:
-            self.connection.delete_object(self.container_name, name)
-        except pyrax.exceptions.ClientException as exc:
-            if exc.http_status == 404:
+            self.container.delete_object(name)
+        except ResponseError, exc:
+            if exc.status == 404:
                 pass
             else:
                 raise
 
     def exists(self, name):
         """
-        Returns True if a file referenced by the given name already
-        exists in the storage system, or False if the name is
-        available for a new file.
+        Returns True if a file referenced by the given name already exists in
+        the storage system, or False if the name is available for a new file.
         """
-        return bool(self._get_object(name))
-
-    def size(self, name):
-        """
-        Returns the total size, in bytes, of the file specified by name.
-        """
-        file_object = self._get_object(name)
-        if file_object:
-            return file_object.total_bytes
-        else:
-            return 0
-
-    def url(self, name):
-        """
-        Returns an absolute URL where the content of each file can be
-        accessed directly by a web browser.
-        """
-        return "{0}/{1}".format(self.container_url, name)
+        try:
+            self._get_cloud_obj(name)
+            return True
+        except NoSuchObject:
+            return False
 
     def listdir(self, path):
         """
-        Lists the contents of the specified path, returning a 2-tuple;
-        the first being an empty list of directories (not available
-        for quick-listing), the second being a list of filenames.
+        Lists the contents of the specified path, returning a 2-tuple; the
+        first being an empty list of directories (not available for quick-
+        listing), the second being a list of filenames.
 
         If the list of directories is required, use the full_listdir method.
         """
         files = []
-        if path and not path.endswith("/"):
-            path = "{0}/".format(path)
+        if path and not path.endswith('/'):
+            path = '%s/' % path
         path_len = len(path)
-        for name in [x["name"] for x in
-                     self.connection.get_container(self.container_name, full_listing=True)[1]]:
+        for name in self.container.list_objects(path=path):
             files.append(name[path_len:])
         return ([], files)
 
     def full_listdir(self, path):
         """
-        Lists the contents of the specified path, returning a 2-tuple
-        of lists; the first item being directories, the second item
-        being files.
+        Lists the contents of the specified path, returning a 2-tuple of lists;
+        the first item being directories, the second item being files.
+
+        On large containers, this may be a slow operation for root containers
+        because every single object must be returned (cloudfiles does not
+        provide an explicit way of listing directories).
         """
         dirs = set()
         files = []
-        if path and not path.endswith("/"):
-            path = "{0}/".format(path)
+        if path and not path.endswith('/'):
+            path = '%s/' % path
         path_len = len(path)
-        for name in [x["name"] for x in
-                     self.connection.get_container(self.container_name, full_listing=True)[1]]:
+        for name in self.container.list_objects(prefix=path):
             name = name[path_len:]
-            slash = name[1:-1].find("/") + 1
+            slash = name[1:-1].find('/') + 1
             if slash:
                 dirs.add(name[:slash])
             elif name:
@@ -326,52 +269,174 @@ class SwiftclientStorage(Auth, Storage):
         dirs.sort()
         return (dirs, files)
 
+    def size(self, name):
+        """
+        Returns the total size, in bytes, of the file specified by name.
+        """
+        return self._get_cloud_obj(name).size
 
-class SwiftclientStaticStorage(SwiftclientStorage):
+    def url(self, name):
+        """
+        Returns an absolute URL where the file's contents can be accessed
+        directly by a web browser.
+        """
+        return '%s/%s' % (self.container_url, name)
+
+    def modified_time(self, name):
+        # CloudFiles return modified date in different formats
+        # depending on whether or not we pre-loaded objects.
+        # When pre-loaded, timezone is not included but we
+        # assume UTC. Since FileStorage returns localtime, and
+        # collectstatic compares these dates, we need to depend 
+        # on dateutil to help us convert timezones.
+        try:
+           from dateutil import parser, tz
+        except ImportError:
+            raise NotImplementedError("This functionality requires dateutil to be installed")
+
+        obj = self.container.get_object(name)
+
+        # convert to string to date
+        date = parser.parse(obj.last_modified)
+
+        # if the date has no timzone, assume UTC
+        if date.tzinfo == None:
+            date = date.replace(tzinfo=tz.tzutc())
+
+        # convert date to local time w/o timezone
+        date = date.astimezone(tz.tzlocal()).replace(tzinfo=None)
+        return date
+
+
+class CloudStorageDirectory(File):
     """
-    Subclasses SwiftclientStorage to automatically set the container
-    to the one specified in CUMULUS["STATIC_CONTAINER"]. This provides
-    the ability to specify a separate storage backend for Django's
-    collectstatic command.
-
-    To use, make sure CUMULUS["STATIC_CONTAINER"] is set to something other
-    than CUMULUS["CONTAINER"]. Then, tell Django's staticfiles app by setting
-    STATICFILES_STORAGE = "cumulus.storage.SwiftclientStaticStorage".
+    A File-like object that creates a directory at cloudfiles
     """
-    container_name = CUMULUS["STATIC_CONTAINER"]
-    container_uri = CUMULUS["STATIC_CONTAINER_URI"]
-    container_ssl_uri = CUMULUS["STATIC_CONTAINER_SSL_URI"]
 
-class ThreadSafeSwiftclientStorage(SwiftclientStorage):
+    def __init__(self, name):
+        super(CloudStorageDirectory, self).__init__(StringIO(), name=name)
+        self.file.content_type = 'application/directory'
+        self.size = 0
+
+    def __str__(self):
+        return 'directory'
+
+    def __nonzero__(self):
+        return True
+
+    def open(self, mode=None):
+        self.seek(0)
+
+    def close(self):
+        pass
+
+
+class CloudFilesStaticStorage(CloudFilesStorage):
     """
-    Extends SwiftclientStorage to make it mostly thread safe.
+    Subclasses CloudFilesStorage to automatically set the container to the one
+    specified in CUMULUS['STATIC_CONTAINER']. This provides the ability to
+    specify a separate storage backend for Django's collectstatic command.
 
-    As long as you do not pass container or cloud objects between
-    threads, you will be thread safe.
-
-    Uses one connection/container per thread.
+    To use, make sure CUMULUS['STATIC_CONTAINER'] is set to something other
+    than CUMULUS['CONTAINER']. Then, tell Django's staticfiles app by setting
+    STATICFILES_STORAGE = 'cumulus.storage.CloudFilesStaticStorage'.
     """
+    container_name = CUMULUS['STATIC_CONTAINER']
+
+
+class CloudFilesStorageFile(File):
+    closed = False
+
+    def __init__(self, storage, name, *args, **kwargs):
+        self._storage = storage
+        self._pos = 0
+        super(CloudFilesStorageFile, self).__init__(file=None, name=name,
+                                                    *args, **kwargs)
+
+    def _get_pos(self):
+        return self._pos
+
+    def _get_size(self):
+        if not hasattr(self, '_size'):
+            self._size = self._storage.size(self.name)
+        return self._size
+
+    def _set_size(self, size):
+        self._size = size
+
+    size = property(_get_size, _set_size)
+
+    def _get_file(self):
+        if not hasattr(self, '_file'):
+            self._file = self._storage._get_cloud_obj(self.name)
+            self._file.tell = self._get_pos
+        return self._file
+
+    def _set_file(self, value):
+        if value is None:
+            if hasattr(self, '_file'):
+                del self._file
+        else:
+            self._file = value
+
+    file = property(_get_file, _set_file)
+
+    def read(self, num_bytes=0):
+        if self._pos == self._get_size():
+            return ""
+        if num_bytes and self._pos + num_bytes > self._get_size():
+            num_bytes = self._get_size() - self._pos
+        data = self.file.read(size=num_bytes or -1, offset=self._pos)
+        self._pos += len(data)
+        return data
+
+    def open(self, *args, **kwargs):
+        """
+        Open the cloud file object.
+        """
+        self._pos = 0
+
+    def close(self, *args, **kwargs):
+        self._pos = 0
+
+    @property
+    def closed(self):
+        return not hasattr(self, '_file')
+
+    def seek(self, pos):
+        self._pos = pos
+
+class ThreadSafeCloudFilesStorage(CloudFilesStorage):
+    """
+    Extends CloudFilesStorage to make it mostly thread safe.
+
+    As long as you don't pass container or cloud objects
+    between threads, you'll be thread safe.
+
+    Uses one cloudfiles connection per thread.
+    """
+
     def __init__(self, *args, **kwargs):
-        super(ThreadSafeSwiftclientStorage, self).__init__(*args, **kwargs)
+        super(ThreadSafeCloudFilesStorage, self).__init__(*args, **kwargs)
 
         import threading
         self.local_cache = threading.local()
 
     def _get_connection(self):
-        if not hasattr(self.local_cache, "connection"):
-            connection = super(ThreadSafeSwiftclientStorage, self)._get_connection()
+        if not hasattr(self.local_cache, 'connection'):
+            connection = cloudfiles.get_connection(self.username,
+                                    self.api_key, **self.connection_kwargs)
             self.local_cache.connection = connection
 
         return self.local_cache.connection
 
-    connection = property(_get_connection, SwiftclientStorage._set_connection)
-
+    connection = property(_get_connection, CloudFilesStorage._set_connection)
 
     def _get_container(self):
-        if not hasattr(self.local_cache, "container"):
-            container = self.connection.create_container(self.container_name)
+        if not hasattr(self.local_cache, 'container'):
+            container = self.connection.get_container(self.container_name)
             self.local_cache.container = container
 
         return self.local_cache.container
 
-    container = property(_get_container, SwiftclientStorage._set_container)
+    container = property(_get_container, CloudFilesStorage._set_container)
