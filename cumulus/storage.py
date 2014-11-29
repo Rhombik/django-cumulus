@@ -342,7 +342,7 @@ class CloudFilesStaticStorage(CloudFilesStorage):
     STATICFILES_STORAGE = 'cumulus.storage.CloudFilesStaticStorage'.
     """
     container_name = CUMULUS['STATIC_CONTAINER']
-
+    container_url = CUMULUS['STATIC_CONTAINER_URI']
 
 class CloudFilesStorageFile(File):
     closed = False
